@@ -289,11 +289,11 @@ Then get the size using:
 ```
 $ docker images rusty-app
 REPOSITORY   TAG       IMAGE ID       CREATED          SIZE
-rusty-app    0.1.0     8743a3ae1823   29 seconds ago   938MB
+rusty-app    0.1.0     e588e477fe38   10 seconds ago   1.17GB
 ```
 
-As we can see the image is 938MB. This is very large considering the application does nothing. See
-[Multi-Stage Builds](#multi-stage-builds) on how to reduce the size.
+As we can see the image is 1.17GB. This is very large considering the application does nothing. See
+the [Multi-Stage Builds](#multi-stage-builds) exercise on how to reduce the size.
 
 Finally to run the image:
 
@@ -490,12 +490,95 @@ loop
 ### Multi-Stage Builds
 
 In the directory `./app/`, change the `Dockerfile` such that the resulting image contains only the
-target binary.
+target binary. Then check the new image size.
 
-<!-- TODO(@jakob):
-   -
-   - - Write multi-stage / scratch
-   -->
+> https://docs.docker.com/develop/develop-images/multistage-build/
+
+<details>
+  <summary>Tip</summary>
+
+Use `scratch` as a base for the runtime image.
+
+</details>
+
+<details>
+  <summary>Solution</summary>
+
+Change the `Dockerfile` to:
+
+```dockerfile
+FROM rust:1.59.0-slim-bullseye as builder
+
+RUN rustup target add x86_64-unknown-linux-musl
+
+# Copy code
+COPY ./Cargo.* ./
+COPY ./src/ ./src/
+
+# Compile
+RUN cargo build --release --target x86_64-unknown-linux-musl
+
+FROM scratch
+
+COPY --from=builder target/x86_64-unknown-linux-musl/release/rusty-app /app
+
+ENTRYPOINT ["/app"]
+```
+
+> Note that the entrypoint needs to remain in an array. Providing it as a single string will cause
+> the interrupt to no longer reach the application. Why this happens is outside the scope of this
+> exercise.
+
+> Moreover, note that the build was preconfigured to work with `scratch`. The compilation needs to
+> ensure that we result in a single statically linked executable that uses `musl` as a `libc`
+> implementation. Why this is required is also outside the scope of this exercise.
+
+Using the new `Dockerfile`, build the application:
+
+```
+$ docker build -t rusty-app:0.1.0 .
+Sending build context to Docker daemon  22.02kB
+Step 1/8 : FROM rust:1.59.0-slim-bullseye as builder
+ ---> 7f642a26afce
+Step 2/8 : RUN rustup target add x86_64-unknown-linux-musl
+ ---> Using cache
+ ---> 40c0ec504a90
+Step 3/8 : COPY ./Cargo.* ./
+ ---> Using cache
+ ---> 703578298e27
+Step 4/8 : COPY ./src/ ./src/
+ ---> Using cache
+ ---> 8b90f01c326e
+Step 5/8 : RUN cargo build --release --target x86_64-unknown-linux-musl
+ ---> Using cache
+ ---> 95bf0993284d
+Step 6/8 : FROM scratch
+ --->
+Step 7/8 : COPY --from=builder target/x86_64-unknown-linux-musl/release/rusty-app /app
+ ---> Using cache
+ ---> b07ab8c10bb7
+Step 8/8 : ENTRYPOINT ["/app"]
+ ---> Running in 51051146715f
+Removing intermediate container 51051146715f
+ ---> c70663b3ad75
+Successfully built c70663b3ad75
+Successfully tagged rusty-app:0.1.0
+```
+
+Now check the size of the new image:
+
+```
+$ docker images rusty-app
+REPOSITORY   TAG       IMAGE ID       CREATED         SIZE
+rusty-app    0.1.0     c70663b3ad75   38 seconds ago   4.4MB
+```
+
+We can see we decreased the size of the image to only 4.4MB (from 1.17GB!). This is not only better
+for performance (less network traffic, faster load into memory), but also improves security as all
+the bloat is removed.
+
+</details>
+
 
 ## Advanced Docker
 
