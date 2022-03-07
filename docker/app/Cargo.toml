@@ -1,0 +1,8 @@
+[package]
+name = "rusty-app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+simple-log = "1.5.1"
+ctrlc = { version = "3.2.1", features = ["termination"] }

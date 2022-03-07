@@ -10,7 +10,12 @@ Before starting the exercises, make sure you have `docker` installed on your mac
   * [List all Containers](#list-all-containers)
   * [Get Logs](#get-logs)
   * [Delete a Container](#delete-a-container)
+  * [Build an Image from a Dockerfile](#build-an-image-from-a-dockerfile)
 * [Intermediate Docker](#intermediate-docker)
+  * [Mount Local Files](#mount-local-files)
+  * [Inject Environment Variables](#inject-environment-variables)
+  * [Automatic Restart](#automatic-restart)
+  * [Multi-Stage Builds](#multi-stage-builds)
 * [Advanced Docker](#advanced-docker)
 
 ---
@@ -216,23 +221,288 @@ CONTAINER ID   IMAGE                      COMMAND                  CREATED      
 </details>
 
 
+### Build an Image from a Dockerfile
+
+In the [`./app/`][app-dir] directory, you should find a small application.
+
+1. Build the Docker image as defined by the `Dockerfile` and name it `rusty-app:0.1.0`.
+2. Check the size of the final image.
+3. Run the image.
+
+[app-dir]: ./app/
+[main-file]: ./app/src/main.rs
+
+<details>
+  <summary>Tip 1 (building)</summary>
+
+Check out `docker build --help` or `man docker-build`.
+
+</details>
+
+<details>
+  <summary>Tip 2 (image size)</summary>
+
+You can use `docker images` to inspect images.
+
+</details>
+
+<details>
+  <summary>Solution</summary>
+
+In order to build the image, we run:
+
+```
+$ # executed from within the ./app/ directory
+$ docker build -t rusty-app:0.1.0 ./
+Sending build context to Docker daemon   21.5kB
+Step 1/5 : FROM rust:1.59.0-slim-bullseye
+ ---> 7f642a26afce
+Step 2/5 : COPY ./Cargo.* ./
+ ---> 19b718c93628
+Step 3/5 : COPY ./src/ ./src/
+ ---> 45c05fc3915a
+Step 4/5 : RUN cargo build --release
+ ---> Running in df919064db85
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded lock_api v0.4.6
+  Downloaded log v0.4.14
+  Downloaded miniz_oxide v0.4.4
+
+  ...
+
+   Compiling simple-log v1.5.1
+   Compiling rusty-app v0.1.0 (/)
+    Finished release [optimized] target(s) in 45.29s
+Removing intermediate container df919064db85
+ ---> 273e336ddf75
+Step 5/5 : ENTRYPOINT target/release/rusty-app
+ ---> Running in 6c07c5f128c9
+Removing intermediate container 6c07c5f128c9
+ ---> d280377f987f
+Successfully built d280377f987f
+Successfully tagged rusty-app:0.1.0
+```
+
+Then get the size using:
+
+```
+$ docker images rusty-app
+REPOSITORY   TAG       IMAGE ID       CREATED          SIZE
+rusty-app    0.1.0     8743a3ae1823   29 seconds ago   938MB
+```
+
+As we can see the image is 938MB. This is very large considering the application does nothing. See
+[Multi-Stage Builds](#multi-stage-builds) on how to reduce the size.
+
+Finally to run the image:
+
+```
+$ docker run --rm rusty-app:0.1.0
+2022-03-07 18:04:56.908388975 [INFO] <rusty_app:24>:Hello, world!
+2022-03-07 18:04:57.575543306 [INFO] <rusty_app:24>:Hello, world!
+2022-03-07 18:04:58.242365953 [INFO] <rusty_app:24>:Hello, world!
+2022-03-07 18:04:58.908615155 [INFO] <rusty_app:24>:Hello, world!
+2022-03-07 18:04:59.574947805 [INFO] <rusty_app:24>:Hello, world!
+2022-03-07 18:05:00.242082482 [INFO] <rusty_app:24>:Hello, world!
+^Creceived interrupt, stopping
+```
+
+</details>
+
 ## Intermediate Docker
+
+### Mount Local Files
+
+When running containers, you often need to share data from the host into the container. This can be
+achieved using Docker volumes.
+
+Create a file `/tmp/ipt-workshop/data.txt` containing the text `hello world!`. Once this is done,
+launch a container which mounts `/tmp/ipt-workshop` onto `/mnt/data` and reads the file contents.
+The mount should be read-only.
+
+Additionally, make sure the container is _automatically_ deleted after execution.
+
+For all this, use the `alpine:3.15.0` image.
+
+<details>
+  <summary>Tip 1</summary>
+
+Check out `docker run --help` or `man docker-run` and look for the keyword "volume".
+
+</details>
+
+<details>
+  <summary>Tip 2</summary>
+
+You want to use the `-v/--volume` flag to mount the path.
+
+</details>
+
+<details>
+  <summary>Tip 3</summary>
+
+You want to use the `--rm` flag to automatically delete the container after exit.
+
+</details>
+
+<details>
+  <summary>Solution</summary>
+
+```
+$ mkdir -p /tmp/ipt-workshop
+$ echo 'hello world!' > /tmp/ipt-workshop/data.txt
+$ docker run --rm -v /tmp/ipt-workshop:/mnt/data:ro alpine:3.15.0 cat /mnt/data/data.txt
+hello world!
+```
+
+> The `ro` option makes sure the volume is read-only.
+
+</details>
+
+### Inject Environment Variables
+
+Run a `alpine:3.15.0` container where you inject the `I_DO_DOCKER` environment variable with value
+`"Of course I do!"`. Do **not** set the environment variable in your shell. Define the command of the
+container such that it echoes `"Do I do docker? $I_DO_DOCKER"` to check that it was injected.
+
+Additionally, make sure the container is _automatically_ deleted after execution.
+
+<details>
+  <summary>Tip 1</summary>
+
+You want to use the `-e/--env` flag to set environment variables.
+
+</details>
+
+<details>
+  <summary>Tip 2</summary>
+
+Be careful not to evaluate the environment variable in your shell before passing it to the
+container. The simplest way to achieve this is to use a wrapping shell (`sh`).
+
+</details>
+
+<details>
+  <summary>Solution</summary>
+
+The following will not work:
+
+```
+$ docker run --rm -e I_DO_DOCKER='Of course I do!' alpine:3.15.0 echo "Do I do docker? $I_DO_DOCKER"
+Do I do docker?
+```
+
+The reason is that `$I_DO_DOCKER` gets evaluated in your current shell before passing it to the
+container as an environment variable.
+
+You might be tempted to therefore try something such as:
+
+```
+$ docker run --rm -e I_DO_DOCKER='Of course I do!' alpine:3.15.0 echo "Do I do docker? \$I_DO_DOCKER"
+Do I do docker? $I_DO_DOCKER
+```
+
+The issue here is that, depending on your shell (`sh`, `bash`, `zsh`), the content might be passed
+raw to the container (it only does variable expansion) which is why it will pass `\$` to the
+container which will thus not expand the variable.
+
+The solution is to wrap it in a shell to ensure the `\$` is evaluated to `$` when the argument is
+passed, or provide a single quote wrapper:
+
+```
+$ docker run --rm -e I_DO_DOCKER='Of course I do!' alpine:3.15.0 sh -c "echo Do I do docker? \$I_DO_DOCKER"
+Do I do docker? Of course I do!
+
+$ # or
+$ docker run --rm -e I_DO_DOCKER='Of course I do!' alpine:3.15.0 sh -c 'echo "Do I do docker? $I_DO_DOCKER"'
+Do I do docker? Of course I do!
+```
+
+</details>
+
+### Automatic Restart
+
+Containers can be restarted on exit automatically. Configure a container that restarts on exit and
+performs a short sleep (10s) and then prints `hello again, beautiful world!`.
+
+After a couple of executions manually delete the container. This will prevent it from restarting.
+
+<details>
+  <summary>Tip 1</summary>
+
+You will want to use the `--restart` flag to set a restart policy. Make sure you check which one to
+use.
+
+</details>
+
+<details>
+  <summary>Tip 2</summary>
+
+Use a wrapping shell to execute several commands sequentially.
+
+</details>
+
+<details>
+  <summary>Tip 3</summary>
+
+Check the container restarted with `docker ps`.
+
+</details>
+
+
+<details>
+  <summary>Solution</summary>
+
+We will use the following command for the container: `sleep 10; echo "hello again, beautiful
+world!"`. This will need to be wrapped in a shell in order to handle the `;` correctly.
+
+Note the container will not fail but exit with status code 0. This means we need to use the `always`
+or `unless-stopped` policy. The only difference between those two is whether to start the container
+when the daemon boots. Since we will manually delete the container right after, it makes no
+difference which one you use.
+
+> Another way to achieve this (but ugly), is to change the command to fail after the print, and then
+> use the `on-failure` policy. E.g. `sleep 10; echo "hello again, beautiful world!; exit 1"`
+
+```
+$ # be patient it will take 10 seconds to print
+$ docker run --restart=unless-stopped --name loop alpine:3.15.0 sh -c 'sleep 10; echo "hello again, beautiful world!"'
+hello again, beautiful world!
+
+$ # check that the container was restarted after it exited
+$ docker ps
+CONTAINER ID   IMAGE           COMMAND                  CREATED              STATUS         PORTS     NAMES
+c61eb46c1fb1   alpine:3.15.0   "sh -c 'sleep 10; ec…"   About a minute ago   Up 6 seconds             loop
+
+$ # stop the container
+$ # this can take up to 10 seconds, since we do not handle the interrupt in the sleep
+$ docker stop loop
+loop
+
+$ # delete the container
+$ docker rm loop
+loop
+```
+
+</details>
+
+### Multi-Stage Builds
+
+In the directory `./app/`, change the `Dockerfile` such that the resulting image contains only the
+target binary.
 
 <!-- TODO(@jakob):
    -
-   - - Mount volume
-   - - Inject environment variable
-   - - Automatic restart
-   - - Build from Dockerfile
-   - - Write Dockerfile
+   - - Write multi-stage / scratch
    -->
 
 ## Advanced Docker
 
 <!-- TODO(@jakob):
    -
-   - - Write multi-stage / scratch
    - - Named volumes
+   - - BuildKit
    - - Networking (redis:6.2.6?)
    - - Trust
    - - Hack your host
