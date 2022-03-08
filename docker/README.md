@@ -43,6 +43,9 @@ docker <cmd> --help
 man docker-<cmd>
 ```
 
+---
+---
+
 ### Pulling an Image
 
 In this exercise, pull the `alpine:3.15.0` image onto your machine. Alpine is a popular Linux
@@ -70,6 +73,9 @@ docker.io/library/alpine:3.15.0
 ```
 
 </details>
+
+---
+---
 
 ### Running a Container
 
@@ -107,6 +113,9 @@ fec72c948753
 ```
 
 </details>
+
+---
+---
 
 ### List all Containers
 
@@ -151,6 +160,8 @@ fec72c948753   alpine:3.15.0              "cat /etc/hostname"      4 minutes ago
 
 </details>
 
+---
+---
 
 ### Get Logs
 
@@ -183,6 +194,9 @@ fec72c948753
 We again see the container ID/hostname, the output of the `cat /etc/hostname` command we ran.
 
 </details>
+
+---
+---
 
 ### Delete a Container
 
@@ -224,6 +238,8 @@ CONTAINER ID   IMAGE                      COMMAND                  CREATED      
 
 </details>
 
+---
+---
 
 ### Build an Image from a Dockerfile
 
@@ -314,7 +330,13 @@ $ docker run --rm rusty-app:0.1.0
 
 </details>
 
+---
+---
+
 ## Intermediate Docker
+
+---
+---
 
 ### Mount Local Files
 
@@ -363,6 +385,9 @@ hello world!
 > The `ro` option makes sure the volume is read-only.
 
 </details>
+
+---
+---
 
 ### Inject Environment Variables
 
@@ -424,6 +449,9 @@ Do I do docker? Of course I do!
 ```
 
 </details>
+
+---
+---
 
 ### Automatic Restart
 
@@ -490,6 +518,9 @@ loop
 ```
 
 </details>
+
+---
+---
 
 ### Multi-Stage Builds
 
@@ -587,8 +618,13 @@ the bloat is removed.
 
 </details>
 
+---
+---
 
 ## Advanced Docker
+
+---
+---
 
 ### Named Volumes
 
@@ -694,6 +730,8 @@ The data in the file was persisted!
 
 </details>
 
+---
+---
 
 ### Docker Networking
 
@@ -828,6 +866,8 @@ my-private-network
 
 </details>
 
+---
+---
 
 ### Using BuildKit
 
@@ -1006,6 +1046,9 @@ $ docker run --rm rusty-app:0.1.0
 ```
 
 </details>
+
+---
+---
 
 ### Host Hack
 
