@@ -871,6 +871,8 @@ my-private-network
 
 ### Using BuildKit
 
+> For this exercise, make sure you have `docker` version 18.09 or higher.
+
 Docker BuildKit is a overhaul of the build architecture. You can find more information about it
 here:
 
