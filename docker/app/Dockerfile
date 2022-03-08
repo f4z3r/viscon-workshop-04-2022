@@ -1,5 +1,7 @@
 FROM rust:1.59.0-slim-bullseye
 
+WORKDIR /app
+
 # Don't worry about all the x86_64-unknown-linux-musl stuff. It is necessary
 # for a later exercise in order to compile the executable generically.
 RUN rustup target add x86_64-unknown-linux-musl

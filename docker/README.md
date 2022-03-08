@@ -17,6 +17,8 @@ Before starting the exercises, make sure you have `docker` installed on your mac
   * [Automatic Restart](#automatic-restart)
   * [Multi-Stage Builds](#multi-stage-builds)
 * [Advanced Docker](#advanced-docker)
+  * [Named Volumes](#named-volumes)
+  * [Using BuildKit](#using-buildkit)
 
 ---
 
@@ -509,6 +511,10 @@ Change the `Dockerfile` to:
 ```dockerfile
 FROM rust:1.59.0-slim-bullseye as builder
 
+WORKDIR /app
+
+# Don't worry about all the x86_64-unknown-linux-musl stuff. It is necessary
+# for a later exercise in order to compile the executable generically.
 RUN rustup target add x86_64-unknown-linux-musl
 
 # Copy code
@@ -582,13 +588,294 @@ the bloat is removed.
 
 ## Advanced Docker
 
-<!-- TODO(@jakob):
-   -
-   - - Named volumes
-   - - BuildKit
-   - - Networking (redis:6.2.6?)
-   - - Trust
-   - - Hack your host
-   - -->
+### Named Volumes
 
+You might want to have data persist between Docker runs. However, always mounting a hostpath and
+managing all your paths might be a hassle. For these use cases, Docker provides named volumes. They
+are essentially mount paths that are managed by Docker internally, and that can be referenced by
+name.
+
+In this exercise, create a volume named `my-data-vol`. Once you have done this, run a container:
+
+- based on `alpine:3.15.0`
+- which continously:
+  1. Appends a line to a file (`lines.txt`) which resides on the volume `my-data-vol`.
+  2. Prints the line count of the `lines.txt` file.
+  3. Sleeps for 2 seconds.
+
+Run the container and kill it after a couple of iterations. Run it again and check that the line
+count did not get reset (since the changes were persisted in the volume).
+
+<details>
+  <summary>Tip 1</summary>
+
+Check out `docker volume --help` or `man docker-volume`.
+
+</details>
+
+<details>
+  <summary>Tip 2</summary>
+
+You can mount a named volume by referencing it by name (e.g. `-v <vol-name>:<mount-path>`).
+
+</details>
+
+<details>
+  <summary>Tip 3</summary>
+
+Use the following as a command for your container:
+
+```sh
+sh -c '
+  while :
+  do
+    echo "a new line" >> <path-to-volume>/lines.txt
+    wc -l <path-to-volume>/lines.txt
+    sleep 2
+  done
+'
+```
+
+</details>
+
+<details>
+  <summary>Solution</summary>
+
+First we create the volume:
+
+```
+$ docker volume create my-data-vol
+my-data-vol
+```
+
+Then launch the container:
+
+```
+$ docker run --rm --name line-loop -v my-data-vol:/mnt/data:rw alpine:3.15.0 sh -c '
+$   while :
+$   do
+$     echo "a new line" >> /mnt/data/lines.txt
+$     wc -l /mnt/data/lines.txt
+$     sleep 2
+$   done
+$ '
+1 /mnt/data/lines.txt
+2 /mnt/data/lines.txt
+3 /mnt/data/lines.txt
+4 /mnt/data/lines.txt
+^C%
+```
+
+> Note that the `:rw` option on the mount is not necessary, it is the default. I like to make this
+> explicit though.
+
+Running the same command again:
+
+```
+$ docker run --rm --name line-loop -v my-data-vol:/mnt/data:rw alpine:3.15.0 sh -c '
+$   while :
+$   do
+$     echo "a new line" >> /mnt/data/lines.txt
+$     wc -l /mnt/data/lines.txt
+$     sleep 2
+$   done
+$ '
+5 /mnt/data/lines.txt
+6 /mnt/data/lines.txt
+7 /mnt/data/lines.txt
+8 /mnt/data/lines.txt
+9 /mnt/data/lines.txt
+^C%
+```
+
+The data in the file was persisted!
+
+</details>
+
+
+### Docker Networking
+
+<!-- TODO(@jakob):  -->
+
+### Using BuildKit
+
+Docker BuildKit is a overhaul of the build architecture. You can find more information about it
+here:
+
+> https://docs.docker.com/develop/develop-images/build_enhancements/
+
+In this exercise, we want to cache the build process of the application. This can be done by caching
+two directories during the build process:
+
+1. `/app/target`
+2. `/usr/local/cargo/registry`
+
+Use BuildKit to mount such caches. After doing so, change the line being logged in the application
+and check that the build process does not download and recompile the dependencies. It should run
+extremely fast.
+
+Start with the [`buildkit.dockerfile`][buildkit-dockerfile] Dockerfile. Note that you will not need
+to modify the build command in any way. You only need to set the mount and ensure BuildKit is being
+used.
+
+[buildkit-dockerfile]: ./app/buildkit.dockerfile
+
+<details>
+  <summary>Tip</summary>
+
+Read up on the following:
+
+> https://github.com/moby/buildkit/blob/master/frontend/dockerfile/docs/syntax.md#build-mounts-run---mount
+
+</details>
+
+<details>
+  <summary>Solution</summary>
+
+First, ensure you are using BuildKit by running the following export:
+
+```sh
+export DOCKER_BUILDKIT=1
+```
+
+Once you have done this, change the `build.dockerfile` to:
+
+```dockerfile
+# syntax=docker/dockerfile:1.3
+FROM rust:1.59.0-slim-bullseye as builder
+
+WORKDIR /app
+
+RUN rustup toolchain install nightly
+RUN rustup default nightly
+RUN rustup target add x86_64-unknown-linux-musl
+
+# Copy code
+COPY ./Cargo.* ./
+COPY ./src/ ./src/
+
+# Compile
+RUN --mount=type=cache,target=/app/target \
+    --mount=type=cache,target=/usr/local/cargo/registry \
+    ["cargo", "build", "--release", "--target", "x86_64-unknown-linux-musl", "-Z", "unstable-options", "--out-dir", "/app/bin"]
+
+## Runtime image
+FROM scratch
+
+COPY --from=builder /app/bin/rusty-app /app
+
+ENTRYPOINT ["/app"]
+
+# vim:ft=dockerfile
+```
+
+> Note the initial comment is very important!
+
+With this we can launch the build using:
+
+```
+$ docker build -t rusty-app:0.1.0 -f buildkit.dockerfile .
+[+] Building 75.9s (18/18) FINISHED
+ => [internal] load build definition from buildkit.dockerfile                                                                                                                                                   0.0s
+ => => transferring dockerfile: 646B                                                                                                                                                                            0.0s
+ => [internal] load .dockerignore                                                                                                                                                                               0.0s
+ => => transferring context: 67B                                                                                                                                                                                0.0s
+ => resolve image config for docker.io/docker/dockerfile:1.3                                                                                                                                                    6.1s
+ => docker-image://docker.io/docker/dockerfile:1.3@sha256:42399d4635eddd7a9b8a24be879d2f9a930d0ed040a61324cfdf59ef1357b3b2                                                                                      1.1s
+ => => resolve docker.io/docker/dockerfile:1.3@sha256:42399d4635eddd7a9b8a24be879d2f9a930d0ed040a61324cfdf59ef1357b3b2                                                                                          0.0s
+ => => sha256:93f32bd6dd9004897fed4703191f48924975081860667932a4df35ba567d7426 528B / 528B                                                                                                                      0.0s
+ => => sha256:e532695ddd93ca7c85a816c67afdb352e91052fab7ac19a675088f80915779a7 1.21kB / 1.21kB                                                                                                                  0.0s
+ => => sha256:24a639a53085eb680e1d11618ac62f3977a3926fedf5b8471ace519b8c778030 9.67MB / 9.67MB                                                                                                                  0.7s
+ => => sha256:42399d4635eddd7a9b8a24be879d2f9a930d0ed040a61324cfdf59ef1357b3b2 2.00kB / 2.00kB                                                                                                                  0.0s
+ => => extracting sha256:24a639a53085eb680e1d11618ac62f3977a3926fedf5b8471ace519b8c778030                                                                                                                       0.3s
+ => [internal] load .dockerignore                                                                                                                                                                               0.0s
+ => [internal] load build definition from buildkit.dockerfile                                                                                                                                                   0.0s
+ => [internal] load metadata for docker.io/library/rust:1.59.0-slim-bullseye                                                                                                                                    0.0s
+ => [builder 1/8] FROM docker.io/library/rust:1.59.0-slim-bullseye                                                                                                                                              0.1s
+ => [internal] load build context                                                                                                                                                                               0.1s
+ => => transferring context: 14.43kB                                                                                                                                                                            0.0s
+ => [builder 2/8] WORKDIR /app                                                                                                                                                                                  0.0s
+ => [builder 3/8] RUN rustup toolchain install nightly                                                                                                                                                         13.1s
+ => [builder 4/8] RUN rustup default nightly                                                                                                                                                                    0.6s
+ => [builder 5/8] RUN rustup target add x86_64-unknown-linux-musl                                                                                                                                               6.8s
+ => [builder 6/8] COPY ./Cargo.* ./                                                                                                                                                                             0.0s
+ => [builder 7/8] COPY ./src/ ./src/                                                                                                                                                                            0.1s
+ => [builder 8/8] RUN --mount=type=cache,target=/app/target     --mount=type=cache,target=/usr/local/cargo/registry     ["cargo", "build", "--release", "--target", "x86_64-unknown-linux-musl", "-Z", "unsta  47.4s
+ => [stage-1 1/1] COPY --from=builder /app/bin/rusty-app /app                                                                                                                                                   0.0s
+ => exporting to image                                                                                                                                                                                          0.0s
+ => => exporting layers                                                                                                                                                                                         0.0s
+ => => writing image sha256:c498722161f38a2dec008522a9c70d5d170875605c9a41401267d5b65899403d                                                                                                                    0.0s
+ => => naming to docker.io/library/rusty-app:0.1.0                                                                                                                                                              0.0s
+```
+
+> The build took 75 seconds.
+
+Let's check that it works:
+
+```
+$ docker run --rm rusty-app:0.1.0
+2022-03-08 13:01:16.267866997 [INFO] <rusty_app:24>:Hello, world!
+2022-03-08 13:01:16.934343111 [INFO] <rusty_app:24>:Hello, world!
+2022-03-08 13:01:17.601468645 [INFO] <rusty_app:24>:Hello, world!
+2022-03-08 13:01:18.268611268 [INFO] <rusty_app:24>:Hello, world!
+2022-03-08 13:01:18.934888805 [INFO] <rusty_app:24>:Hello, world!
+^Creceived interrupt, stopping
+```
+
+Now let's change the log to `"Hello everyone!"`:
+
+```rust
+// on line 24
+info!("Hello everyone!");
+```
+
+Now let us build again:
+
+```
+$ docker build -t rusty-app:0.1.0 -f buildkit.dockerfile .
+[+] Building 3.5s (18/18) FINISHED
+ => [internal] load build definition from buildkit.dockerfile                                                                                                                                                   0.0s
+ => => transferring dockerfile: 47B                                                                                                                                                                             0.0s
+ => [internal] load .dockerignore                                                                                                                                                                               0.0s
+ => => transferring context: 34B                                                                                                                                                                                0.0s
+ => resolve image config for docker.io/docker/dockerfile:1.3                                                                                                                                                    2.1s
+ => CACHED docker-image://docker.io/docker/dockerfile:1.3@sha256:42399d4635eddd7a9b8a24be879d2f9a930d0ed040a61324cfdf59ef1357b3b2                                                                               0.0s
+ => [internal] load .dockerignore                                                                                                                                                                               0.0s
+ => [internal] load build definition from buildkit.dockerfile                                                                                                                                                   0.0s
+ => [internal] load metadata for docker.io/library/rust:1.59.0-slim-bullseye                                                                                                                                    0.0s
+ => [builder 1/8] FROM docker.io/library/rust:1.59.0-slim-bullseye                                                                                                                                              0.0s
+ => [internal] load build context                                                                                                                                                                               0.0s
+ => => transferring context: 780B                                                                                                                                                                               0.0s
+ => CACHED [builder 2/8] WORKDIR /app                                                                                                                                                                           0.0s
+ => CACHED [builder 3/8] RUN rustup toolchain install nightly                                                                                                                                                   0.0s
+ => CACHED [builder 4/8] RUN rustup default nightly                                                                                                                                                             0.0s
+ => CACHED [builder 5/8] RUN rustup target add x86_64-unknown-linux-musl                                                                                                                                        0.0s
+ => CACHED [builder 6/8] COPY ./Cargo.* ./                                                                                                                                                                      0.0s
+ => [builder 7/8] COPY ./src/ ./src/                                                                                                                                                                            0.0s
+ => [builder 8/8] RUN --mount=type=cache,target=/app/target     --mount=type=cache,target=/usr/local/cargo/registry     ["cargo", "build", "--release", "--target", "x86_64-unknown-linux-musl", "-Z", "unstab  1.0s
+ => [stage-1 1/1] COPY --from=builder /app/bin/rusty-app /app                                                                                                                                                   0.0s
+ => exporting to image                                                                                                                                                                                          0.0s
+ => => exporting layers                                                                                                                                                                                         0.0s
+ => => writing image sha256:d9c983024fa50473667d62abea02d988c7b34b22536659510276908682569b5a                                                                                                                    0.0s
+ => => naming to docker.io/library/rusty-app:0.1.0                                                                                                                                                              0.0s
+```
+
+> Thanks to the caching, the build now only took 3.5 seconds!
+
+Let's try the application:
+
+```
+$ docker run --rm rusty-app:0.1.0
+2022-03-08 13:02:48.572314079 [INFO] <rusty_app:24>:Hello everyone!
+2022-03-08 13:02:49.238526698 [INFO] <rusty_app:24>:Hello everyone!
+2022-03-08 13:02:49.905180936 [INFO] <rusty_app:24>:Hello everyone!
+2022-03-08 13:02:50.572334707 [INFO] <rusty_app:24>:Hello everyone!
+^Creceived interrupt, stopping
+```
+
+</details>
+
+### Host Hack
+
+<!-- TODO(@jakob): user creation via passwd mounting  -->
 
