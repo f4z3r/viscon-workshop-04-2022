@@ -20,6 +20,7 @@ Before starting the exercises, make sure you have [minikube](https://minikube.si
     - [Declarative resource management](#declarative-resource-management)
     - [Setting virtual resources](#setting-virtual-resources)
   - [Advanced Kubernetes](#advanced-kubernetes)
+    - [Configuring a deployment with data from ConfigMaps](#configuring-a-deployment-with-data-from-configmaps)
     - [Creating a Blue/Green Deployment](#creating-a-bluegreen-deployment)
     - [Testing the Blue/Green Deployment](#testing-the-bluegreen-deployment)
     - [Share data between apps](#share-data-between-apps)
@@ -450,6 +451,127 @@ deployment.apps/nginx configured
 ---
 
 ## Advanced Kubernetes
+
+### Configuring a deployment with data from ConfigMaps
+
+Another useful resource in Kubernetes is the `ConfigMap`. As the name implies, it can be used to store configurations which can then be made availabe inside deployments. That way, if a config changes, only the ConfigMap needs to be adapted. In this exercise, we'll start a second webserver deployment but instead of the default nginx page, we'll display a custom HTML file configured via ConfigMap.
+
+1. Create a ConfigMap containing the `kubernetes/hello_world.html` file as data. The file can be found in this repository.
+2. Create a deployment `nginx-custom` with an `nginx:1.21.6` image, a `volume` populated with data from the ConfigMap, and a `volumeMount`, mounting the HTML file at `/usr/share/nginx/html/index.html` inside the container.
+3. Expose the new deployment.
+4. Verify that the server shows our custom HTML
+
+<details>
+  <summary>Tip 1</summary>
+
+In order to create the ConfigMap, check out the `kubectl create configmap` command.
+
+</details>
+
+<details>
+  <summary>Tip 2</summary>
+
+Edit the YAML from the previous exercise. Adapt the name of the deployment. For configuring Volumes and mounting the data, have a look at [this article](https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/#populate-a-volume-with-data-stored-in-a-configmap).
+
+</details>
+
+<details>
+  <summary>Solution</summary>
+
+Create the ConfigMap:
+
+```
+$ kubectl create configmap html-data --from-file index.html=kubernetes/hello_world.html
+configmap/html-data created
+```
+
+A minimal deployment YAML looks like this:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: nginx-custom
+  name: nginx-custom
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx-custom
+  template:
+    metadata:
+      labels:
+        app: nginx-custom
+    spec:
+      containers:
+        - image: nginx:1.21.6
+          name: nginx
+          volumeMounts:
+            - name: html-volume
+              mountPath: /usr/share/nginx/html
+      volumes:
+        - name: html-volume
+          configMap:
+            name: html-data
+```
+
+Apply the depoyment YAML:
+
+```
+$ kubectl apply -f nginx-custom.yaml
+deployment.apps/nginx-custom created
+```
+
+Expose the the deployment:
+
+```
+$ kubectl expose deployment/nginx-custom --port 9090 --target-port 80
+service/nginx-custom exposed
+```
+
+Use `minikube service` to forward the service and verify that our HTML has been set as index page:
+
+```
+$ minikube service nginx-custom
+|-----------|--------------|-------------|--------------|
+| NAMESPACE |     NAME     | TARGET PORT |     URL      |
+|-----------|--------------|-------------|--------------|
+| default   | nginx-custom |             | No node port |
+|-----------|--------------|-------------|--------------|
+😿  service default/nginx-custom has no node port
+🏃  Starting tunnel for service nginx-custom.
+|-----------|--------------|-------------|------------------------|
+| NAMESPACE |     NAME     | TARGET PORT |          URL           |
+|-----------|--------------|-------------|------------------------|
+| default   | nginx-custom |             | http://127.0.0.1:36545 |
+|-----------|--------------|-------------|------------------------|
+```
+
+With cURL:
+
+```
+$ curl http://127.0.0.1:36545
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Hello Kubernetes!</title>
+</head>
+
+<body>
+    <p>This is an example of a simple HTML page with one paragraph.</p>
+</body>
+
+</html>
+```
+
+
+</details>
+
+---
+---
 
 ### Creating a Blue/Green Deployment
 - get yaml, modify image, run second deployment
