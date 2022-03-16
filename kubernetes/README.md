@@ -103,7 +103,7 @@ Now that we know your cluster is running, it's time to deploy the first applicat
 
 ### Running an app
 
-In the previous exercises, you learnt about Docker containers. We'll use an `nginx:1.7.1` image to spin up a webserver on our cluster. Create a deployment running the mentioned image.
+In the previous exercises, you learnt about Docker containers. We'll use an `nginx:1.21.6` image to spin up a webserver on our cluster. Create a deployment running the mentioned image.
 
 <details>
   <summary>Tip</summary>
@@ -116,7 +116,7 @@ Use the `kubectl create deployment` command.
   <summary>Solution</summary>
 
 ```
-$ kubectl create deployment nginx --image nginx:1.7.1
+$ kubectl create deployment nginx --image nginx:1.21.6
 deployment.apps/nginx created
 ```
 
@@ -150,7 +150,7 @@ Or, for even more information:
 ```
 $ kubectl get deployments -o wide
 NAME    READY   UP-TO-DATE   AVAILABLE   AGE   CONTAINERS   IMAGES        SELECTOR
-nginx   1/1     1            1           13m   nginx        nginx:1.7.1   app=nginx
+nginx   1/1     1            1           13m   nginx        nginx:1.21.6   app=nginx
 ```
 
 </details>
@@ -419,7 +419,7 @@ In order to apply your changes, you'll need the `kubectl apply` command.
 
 This is what the `resources` section should look like:
 
-```
+```yaml
 ...
 spec:
   containers:
