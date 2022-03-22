@@ -759,3 +759,109 @@ Congrats! You have successfully created a Blue/Green deployment of your webapp.
 ---
 
 ### Share data between apps
+
+So far, we have only looked at deployments that run a single `nginx` container per instance. However, Kubernetes supports running multiple containers alongside each other to allow for some interesting usecases. For example, one can have a container exporting metrics running alongside the main application container. Another common usecase is running an a proxy container that enforces authentication and rate-limiting in front of a webapp. To the outside, these containers usually appear as a single, cohesive unit. More information about multi-container deployments can be found [here](https://kubernetes.io/docs/concepts/workloads/pods/#how-pods-manage-multiple-containers).
+
+One simple way, how mutliple containers that belong together can exchange data is by mounting the same volume. That's what we're going to explore in this exercise.
+
+Your task is to create a single [Pod](https://kubernetes.io/docs/concepts/workloads/pods/) with two containers based on the `alpine:3.15` image, that share an [`emptyDir` volume](https://kubernetes.io/docs/concepts/storage/volumes/#emptydir). One container will write the current date to a file in the volume every `2s` while the other container will watch the file for changes and display them to the terminal.
+
+<details>
+  <summary>Tip 1</summary>
+
+Have a look at this [documentation](https://kubernetes.io/docs/tasks/access-application-cluster/communicate-containers-same-pod-shared-volume/) explaining how to share data between two containers in a Pod.
+
+</details>
+
+<details>
+  <summary>Tip 2</summary>
+
+For writing the current date, you can use the `date` command.
+You'll need to set the `command` and `args` of the container accordingly.
+Have a look at the [documentation](https://kubernetes.io/docs/tasks/inject-data-application/define-command-argument-container/).
+
+</details>
+
+<details>
+  <summary>Tip 3</summary>
+
+For watching the file contents, have your other container write out the file to stdout using the `tail -f <file>` command. Again, set `command` and `args` of the container to your desired command.
+
+</details>
+
+<details>
+  <summary>Tip 4</summary>
+
+Use `kubectl logs` to get the output of the consumer. As we're now running two containers in a pod, the syntax is as follows:
+
+`kubectl logs <pod-name> <container-name>`
+
+Also look at the `-f` option in order to stream the logs in realtime.
+
+</details>
+
+<details>
+  <summary>Solution</summary>
+
+First, let's create the Pod using the declarative approach:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: two-containers
+spec:
+  restartPolicy: Never
+  volumes:
+  - name: shared-data
+    emptyDir: {}
+  containers:
+  - name: producer
+    image: alpine:3.15
+    command: ["/bin/sh"]
+    args: ["-c", "while true; do date >> /producer-data/dates.txt ; sleep 2; done"]
+    volumeMounts:
+    - name: shared-data
+      mountPath: /producer-data
+  - name: consumer
+    image: alpine:3.15
+    command: ["/bin/sh"]
+    args: ["-c", "sleep 2 && tail -f /consumer-data/dates.txt"]
+    volumeMounts:
+    - name: shared-data
+      mountPath: /consumer-data
+```
+Let's break this YAML down:
+
+We have defined a single emptyDir volume under the Pod's `volumes` section with the name `shared-data`.
+
+Under `containers` we have defined two containers with the names `consumer` and `producer`. Both are running the image `alpine:3.15`. The containers have each mounted the the `shared-data` volume to a local path in their filesystem. `producer` mounts the volume at `producer-data` while `consumer` mounts it at `consumer-data`. Although the local mount path is different, both locations are backed by the same emptyDir volume.
+
+For each container, we overwrite the command they execute on startup. In both cases we choose to execute the `/bin/sh` shell. However, the arguments passed are different. For the producer, we create a loop that writes the date to `/producer-data/dates.txt`. The consumer waits 2s to give the producer time to create the file, then it starts to watch the file `/consumer-data/dates.txt` for changes and writes them to stdout. Note again that `/producer-data/dates.txt` and `/consumer-data/dates.txt` point to the same file in `shared-data`.
+
+Let's apply the definition:
+
+```
+$ kubectl apply -f two-containers.yaml
+pod/two-containers created
+```
+
+Now we use `kubectl logs` to get the stdout of our consumer:
+
+```
+$ kubectl logs two-containers consumer -f
+Tue Mar 22 10:33:00 UTC 2022
+Tue Mar 22 10:33:02 UTC 2022
+Tue Mar 22 10:33:04 UTC 2022
+Tue Mar 22 10:33:06 UTC 2022
+Tue Mar 22 10:33:08 UTC 2022
+Tue Mar 22 10:33:10 UTC 2022
+Tue Mar 22 10:33:12 UTC 2022
+Tue Mar 22 10:33:14 UTC 2022
+Tue Mar 22 10:33:16 UTC 2022
+Tue Mar 22 10:33:18 UTC 2022
+Tue Mar 22 10:33:20 UTC 2022
+```
+We get the timestamps 2 seconds apart expected. Both, the producer and consumer are working.
+
+</details>
