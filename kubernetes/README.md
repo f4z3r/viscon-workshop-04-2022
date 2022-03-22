@@ -22,7 +22,6 @@ Before starting the exercises, make sure you have [minikube](https://minikube.si
   - [Advanced Kubernetes](#advanced-kubernetes)
     - [Configuring a deployment with data from ConfigMaps](#configuring-a-deployment-with-data-from-configmaps)
     - [Creating a Blue/Green Deployment](#creating-a-bluegreen-deployment)
-    - [Testing the Blue/Green Deployment](#testing-the-bluegreen-deployment)
     - [Share data between apps](#share-data-between-apps)
 
 ---
@@ -574,8 +573,189 @@ $ curl http://127.0.0.1:36545
 ---
 
 ### Creating a Blue/Green Deployment
-- get yaml, modify image, run second deployment
 
-### Testing the Blue/Green Deployment
+In this exercise, we will create and test a [blue/green deployment](https://www.redhat.com/en/topics/devops/what-is-blue-green-deployment). The goal is to have a replicated webserver with a total of `10 replicas`. 80% of traffic should be routed to the old (blue) version, while 20% of traffic should hit our new (green) version.
+Create two deployments `nginx-blue` and `nginx-green`, both with image `nginx:1.21.6`, in such a way that the traffic requirements are met. In order to make verification possible, make sure that `nginx-blue` mounts `kubernetes/blue.html` at `/usr/share/nginx/html/index.html`, while `nginx-green` mounts `kubernetes/green.html`.
+
+<details>
+  <summary>Tip</summary>
+
+A Kubernetes service uses `selectors` to select the replicas to which traffic is routed. In our case, the selector is a `matchLabels` selector. This means that our service routes traffic to all replicas that have a certain label configured. To solve the excercise, make sure to set the same label on all 10 replicas.
+
+More info:
+  - [Labels and Selectors](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/)
+  - [Services](https://kubernetes.io/docs/concepts/services-networking/service/)
+
+</details>
+
+<details>
+  <summary>Solution</summary>
+
+The basic idea is to craete two deployments, one with 8 and the other with 2 replicas. Both deployments should add the same labels to the replicas. Then, when we expose one of the deployments using a service, traffic will be routed to both deployments because the label selector of the service matches all 10 replicas. Since we have a 8-to-2 ratio of replicas, 80% of traffic will automatically hit the old (blue) version while the remaining 20% are routed to the new (green) version.
+
+Create the HTML ConfigMaps:
+
+```
+$ kubectl create configmap html-blue-data --from-file index.html=kubernetes/blue.html
+configmap/html-blue-data created
+```
+
+```
+$ kubectl create configmap html-green-data --from-file index.html=kubernetes/green.html
+configmap/html-green-data created
+```
+
+Craete the deployments:
+
+Blue deployment:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: nginx-blue
+  name: nginx-blue
+  namespace: default
+spec:
+  replicas: 8
+  selector:
+    matchLabels:
+      app-version: nginx-blue
+  template:
+    metadata:
+      labels:
+        app: nginx-blue-green
+        app-version: nginx-blue
+    spec:
+      containers:
+        - image: nginx:1.21.6
+          name: nginx
+          volumeMounts:
+            - name: html-volume
+              mountPath: /usr/share/nginx/html
+      volumes:
+        - name: html-volume
+          configMap:
+            name: html-blue-data
+```
+
+```
+$ kubectl apply -f nginx-blue.yaml
+deployment.apps/nginx-blue created
+```
+
+Green deployment:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: nginx-green
+  name: nginx-green
+  namespace: default
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app-version: nginx-green
+  template:
+    metadata:
+      labels:
+        app: nginx-blue-green
+        app-version: nginx-green
+    spec:
+      containers:
+        - image: nginx:1.21.6
+          name: nginx
+          volumeMounts:
+            - name: html-volume
+              mountPath: /usr/share/nginx/html
+      volumes:
+        - name: html-volume
+          configMap:
+            name: html-green-data
+```
+
+```
+$ kubectl apply -f nginx-green.yaml
+deployment.apps/nginx-green created
+```
+Now, let's create a service that matches both deployments by matching only the `app: nginx-blue-green` label:
+
+```
+$ kubectl expose deployment nginx-blue --name nginx-blue-green --port 7070 --tar
+get-port 80 --selector app=nginx-blue-green
+service/nginx-blue-green exposed
+```
+
+Note: we exposed the deployment `nginx-blue` but by giving the appropriate selector with `--selector app=nginx-blue-green` the service matchs both deployments.
+We can check this with the following command:
+
+```
+$ kubectl get endpoints nginx-blue-green
+NAME               ENDPOINTS                                                  AGE
+nginx-blue-green   172.17.0.10:80,172.17.0.11:80,172.17.0.12:80 + 7 more...   112s
+```
+
+We can see that the service matches all 10 replicas. We are ready to test!
+
+```
+$ minikube service nginx-blue-green
+|-----------|------------------|-------------|--------------|
+| NAMESPACE |       NAME       | TARGET PORT |     URL      |
+|-----------|------------------|-------------|--------------|
+| default   | nginx-blue-green |             | No node port |
+|-----------|------------------|-------------|--------------|
+😿  service default/nginx-blue-green has no node port
+🏃  Starting tunnel for service nginx-blue-green.
+|-----------|------------------|-------------|------------------------|
+| NAMESPACE |       NAME       | TARGET PORT |          URL           |
+|-----------|------------------|-------------|------------------------|
+| default   | nginx-blue-green |             | http://127.0.0.1:43001 |
+|-----------|------------------|-------------|------------------------|
+```
+
+```
+$ curl  http://127.0.0.1:43001
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Hello from Blue!</title>
+</head>
+
+<body>
+    <p>This is the old version speaking.</p>
+</body>
+
+</html>
+``` 
+
+You'll most likely get a response from one of the blue replicas. By trying again a couple of times, eventually you should see this:
+
+```
+$ curl  http://127.0.0.1:43001
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Hello from Green!</title>
+</head>
+
+<body>
+    <p>This is the new, shiny version speaking.</p>
+</body>
+
+</html>
+```
+
+Congrats! You have successfully created a Blue/Green deployment of your webapp.
+
+</details>
+
+---
+---
 
 ### Share data between apps
