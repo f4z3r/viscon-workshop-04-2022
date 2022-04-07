@@ -762,9 +762,9 @@ Congrats! You have successfully created a Blue/Green deployment of your webapp.
 
 So far, we have only looked at deployments that run a single `nginx` container per instance. However, Kubernetes supports running multiple containers alongside each other to allow for some interesting usecases. For example, one can have a container exporting metrics running alongside the main application container. Another common usecase is running an a proxy container that enforces authentication and rate-limiting in front of a webapp. To the outside, these containers usually appear as a single, cohesive unit. More information about multi-container deployments can be found [here](https://kubernetes.io/docs/concepts/workloads/pods/#how-pods-manage-multiple-containers).
 
-One simple way, how mutliple containers that belong together can exchange data is by mounting the same volume. That's what we're going to explore in this exercise.
+One simple way, how mutliple containers that belong together, can exchange data is by mounting the same volume. That's what we're going to explore in this exercise.
 
-Your task is to create a single [Pod](https://kubernetes.io/docs/concepts/workloads/pods/) with two containers based on the `alpine:3.15` image, that share an [`emptyDir` volume](https://kubernetes.io/docs/concepts/storage/volumes/#emptydir). One container will write the current date to a file in the volume every `2s` while the other container will watch the file for changes and display them to the terminal.
+Your task is to create a single [Pod](https://kubernetes.io/docs/concepts/workloads/pods/) with two containers, each based on the `alpine:3.15` image, that share an [`emptyDir` volume](https://kubernetes.io/docs/concepts/storage/volumes/#emptydir). One container will write the current date to a file in the volume every `2s` while the other container will watch the file for changes and write them to standard output. Then, display the logs of the second container to verify that everything works. You should see timestamps appearing in the logs every two seconds.
 
 <details>
   <summary>Tip 1</summary>
@@ -862,6 +862,6 @@ Tue Mar 22 10:33:16 UTC 2022
 Tue Mar 22 10:33:18 UTC 2022
 Tue Mar 22 10:33:20 UTC 2022
 ```
-We get the timestamps 2 seconds apart expected. Both, the producer and consumer are working.
+Every two seconds we get a new timestamp. Both, the producer and consumer are working as expected.
 
 </details>
